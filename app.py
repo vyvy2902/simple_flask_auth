@@ -3,6 +3,7 @@ from flask_login import login_user, current_user, logout_user, login_required
 from database import db
 from login_manager import login_manager
 from models.user import User
+import bcrypt
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'secret_key'
@@ -23,7 +24,7 @@ def login():
     username = data.get('username')
     password = data.get('password')
     user = User.query.filter_by(username=username).first()
-    if user and user.password == password:
+    if user and bcrypt.checkpw(str.encode(password), str.encode(user.password)):
         login_user(user)
         return jsonify({'message': 'Authenticated successfully'})
     return jsonify({'message': 'Invalid credentials'}), 400
@@ -41,7 +42,8 @@ def create_user():
     password = data.get('password')
 
     if username and password:
-        user = User(username = username, password = password)
+        hashed_password = bcrypt.hashpw(str.encode(password), bcrypt.gensalt())
+        user = User(username = username, password = hashed_password, role = 'user')
         db.session.add(user)
         db.session.commit()
         return jsonify({'message': 'User successfully registered'})
@@ -60,7 +62,9 @@ def read_user(id_user):
 @login_required
 def update_user(id_user):
     user = User.query.get(id_user)
-    if user:
+    if id_user != current_user.id and current_user.role == 'user':
+        return jsonify({'message': f'Unauthorized operation'}), 403
+    if user and data.get('password'):
         data = request.json
         user.password = data.get('password')
         db.session.commit()
@@ -69,9 +73,9 @@ def update_user(id_user):
 
 @app.route('/user/<int:id_user>', methods=['DELETE'])
 @login_required
-def delte_user(id_user):
+def delete_user(id_user):
     user = User.query.get(id_user)
-    if user.id == current_user.id:
+    if user.id == current_user.id or current_user.role != 'admin':
         return jsonify({'message': 'Unauthorized deletion'}), 403
     if user:
         db.session.delete(user)
